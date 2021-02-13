@@ -67,22 +67,21 @@ if __name__ =='__main__':
     model = tf.keras.models.load_model(args.model, custom_objects={'KerasLayer':hub.KerasLayer})
     print(model.summary())
 
-    if args.top_k is None and args.category_names is None:
-        probs, classes = predict(image_path, model)
-        print("Probabilities and classes for the image: ")
-    elif args.top_k is not None:
-        top_k = int(args.top_k)
-        probs, classes = predict(image_path, model, top_k)
-        print(f"The top {top_k} probabilities and classes for the image: ")
-    elif args.category_names is not None:
-        with open(args.category_names, 'r') as f:
-            class_names = json.load(f)
-        probs, classes = predict(image_path, model)
-        print("Probabilities and classes for the image: ")
-        classes = [class_names[c] for c in  classes]
-            
+    if args.top_k is None: # and args.category_names is None:
+      probs, classes = predict(image_path, model)
+      print("The top 5 probabilities and classes for the image are: ")
+    else: 
+      top_k = int(args.top_k)
+      probs, classes = predict(image_path, model, top_k)
+      print(f"The top {top_k} probabilities and classes for the image are: ")
+    
+    if args.category_names is not None:
+      with open(args.category_names, 'r') as f:
+        class_names = json.load(f)
+      classes = [class_names[c] for c in  classes]
+                
     for prob, c in zip(probs, classes):
-        print(f'{c}:  {prob:.2%}')
+      print(f'{c}:  {prob:.2%}')
     
     print(f'The flower is: {classes[0]}, most probably.')
 
