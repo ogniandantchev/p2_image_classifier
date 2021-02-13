@@ -1,195 +1,89 @@
-
-import os
-import urllib
-import json
-
 import numpy as np
 import matplotlib.pyplot as plt
+import json
 
-# Commented out IPython magic to ensure Python compatibility.
-# %tensorflow_version 2.x
+import argparse
 import tensorflow as tf
-
-# from Colab: TensorFlow with GPU -- https://colab.research.google.com/notebooks/gpu.ipynb
-# device_name = tf.test.gpu_device_name()
-# if device_name != '/device:GPU:0':
-#   raise SystemError('GPU device not found')
-# print('Found GPU at: {}'.format(device_name))
-
-#import tensorflow as tf
-import tensorflow_hub as hub
-#import tensorflow.compat.v2 as tf
-
 import tensorflow_datasets as tfds
+import tensorflow_hub as hub
 
-from tensorflow.keras import layers
+from PIL import Image
 
-print(tf.version)
+IMAGE_RES= 224
 
-#!nvidia-smi
-# import warnings
-# warnings.filterwarnings('ignore')
+print()
+print("TF version:", tf.__version__)
+print("Hub version:", hub.__version__)
+# `tf.config.list_physical_devices('GPU')` instead.
+print(tf.config.list_physical_devices('GPU'))
+print("GPU is", "available" if tf.test.is_gpu_available() else "NOT AVAILABLE")
 
-# from https://www.tensorflow.org/datasets/overview
-# pip install -q tfds-nightly tensorflow matplotlib
-# for local setup
+# def process_image(image):
+#     image = tf.cast(image, tf.float32)
+#     # you can also do this for conversion tf.image.convert_image_dtype(x, dtype=tf.float16, saturate=False)
+#     image = tf.image.resize(image, (image_size, image_size)).numpy()
+#     image /= 255
+#     return image
 
+def process_image(img):
+    image = np.squeeze(img)
+    image = tf.image.resize(image, (IMAGE_RES, IMAGE_RES))/255.0
+    return image
 
-# Load the dataset with TensorFlow Datasets.
-dataset, dataset_info = tfds.load('oxford_flowers102', with_info=True, as_supervised=True)
-print(dataset_info)
+def predict(image_path, model, top_k=5):
+    image = Image.open(image_path)
+    test_image = np.asarray(image)
+    processed_test_image = process_image(test_image)
+    expanded_test_image = np.expand_dims(processed_test_image, axis=0)
+    
+    pred_image = model.predict(expanded_test_image)
+    values, indices = tf.math.top_k(pred_image, k=top_k)
+    probs = values.numpy()[0]
+    classes = indices.numpy()[0] + 1
+    
+    # preapere the result for presenting
+    probs = list(probs)
+    classes = list(map(str, classes))
+    
+    return probs, classes
 
-# from TF example: https://colab.research.google.com/github/tensorflow/examples/blob/master/courses/udacity_intro_to_tensorflow_for_deep_learning/l06c03_exercise_flowers_with_transfer_learning_solution.ipynb#scrollTo=oXiJjX0jfx1o
-# (training_set, validation_set), dataset_info = tfds.load(
-#     'oxford_flowers102',
-#     split=['train[:70%]', 'train[70%:]'],
-#     with_info=True,
-#     as_supervised=True,
-# )
+class_names = []
 
+if __name__ =='__main__':
 
-# Create a training set, a validation set and a test set.
-test_set, training_set, validation_set = dataset['test'], dataset['train'], dataset['validation']
+#Initailize the parser
+    parser = argparse.ArgumentParser(description='Flowers-102 Image Classifier')
+#Add Args
+    parser.add_argument('image_path',  action= 'store', help="Image path/file")
+    parser.add_argument('model', type= str, help= "Trained model file in ")
+    parser.add_argument('--top_k', type= int, help= 'Top K most likely classes to print')
+    parser.add_argument('--category_names', type= str, help= 'File name of category labels, JSON format')
+    
+#Parse Arguments
+    args = parser.parse_args()
 
-print(training_set)
+    image_path = args.image_path
 
-one_im = training_set.take(1)  # Only take a single example
+    model = tf.keras.models.load_model(args.model, custom_objects={'KerasLayer':hub.KerasLayer})
+    print(model.summary())
 
-print(one_im)
+    if args.top_k is None and args.category_names is None:
+        probs, classes = predict(image_path, model)
+        print("Probabilities and classes for the image: ")
+    elif args.top_k is not None:
+        top_k = int(args.top_k)
+        probs, classes = predict(image_path, model, top_k)
+        print(f"The top {top_k} probabilities and classes for the image: ")
+    elif args.category_names is not None:
+        with open(args.category_names, 'r') as f:
+            class_names = json.load(f)
+        probs, classes = predict(image_path, model)
+        print("Probabilities and classes for the image: ")
+        classes = [class_names[c] for c in  classes]
+            
+    for prob, c in zip(probs, classes):
+        print(f'{c}:  {prob:.2%}')
+    
+    print(f'The flower is: {classes[0]}, most probably.')
 
-
-
-# Get the number of examples in each set from the dataset info.
-num_training_examples = 0
-num_validation_examples = 0
-num_test_examples = 0
-
-for example in training_set:
-  num_training_examples += 1
-
-for example in validation_set:
-  num_validation_examples += 1
-
-for example in test_set:
-  num_test_examples += 1
-
-print(f'Total Number of Training Images: {num_training_examples}')
-print(f'Total Number of Validation Images: {num_validation_examples}')
-print(f'Total Number of Test Images: {num_test_examples}')
-print('\n\n')
-
-
-# Get the number of classes in the dataset from the dataset info.
-
-num_classes = dataset_info.features['label'].num_classes
-print(f'Total Number of Classes: {num_classes}')
-
-# Print the shape and corresponding label of 3 images in the training set.
-
-for i, example in enumerate(training_set.take(3)):
-  print(f'Image {i+1} shape: {example[0].shape} label: {example[1]}')
-
-training_set.take(1)
-
-# Plot 1 image from the training set. Set the title 
-# of the plot to the corresponding image label.
-
-
-# see https://www.tensorflow.org/guide/data
-
-#(image, label) = training_set.take(1)
-for image, label in training_set.take(1):
-  print(image.shape, label)
-image = image.numpy()
-
-plt.figure()
-plt.imshow(image, cmap=plt.cm.binary)
-plt.title(f'{label}')
-plt.colorbar()
-#plt.grid(False)
-plt.show()
-
-"""## Label Mapping
-
-You'll also need to load in a mapping from label to category name. You can find this in the file label_map.json. It's a JSON object which you can read in with the [json module](https://docs.python.org/3.7/library/json.html). This will give you a dictionary mapping the integer coded labels to the actual names of the flowers.
-"""
-
-# import json
-#import pandas as pd 
-
-labels_url= "https://github.com/udacity/intro-to-ml-tensorflow/blob/master/projects/p2_image_classifier/label_map.json"
-with open('label_map.json', 'r') as f:
-    class_names = json.load(f)
-#class_names = pd.read_json(labels_url, orient='records', dtype='dict')
-
-#print(class_names[str(label.numpy())])
-
-
-plt.figure()
-plt.imshow(image, cmap=plt.cm.binary)
-plt.title(class_names[str(label.numpy())])
-plt.colorbar()
-plt.grid(False)
-plt.show()
-
-
-## Create Pipeline
-
-# Create a pipeline for each set.
-IMAGE_RES = 224
-
-def format_image(image, label):
-  image = tf.image.resize(image, (IMAGE_RES, IMAGE_RES))/255.0
-  return image, label
-
-BATCH_SIZE = 32
-
-train_batches = training_set.cache().shuffle(num_training_examples//4).map(format_image).batch(BATCH_SIZE).prefetch(1)
-
-validation_batches = validation_set.cache().map(format_image).batch(BATCH_SIZE).prefetch(1)
-
-test_batches = test_set.cache().map(format_image).batch(BATCH_SIZE).prefetch(1)
-
-
-
-# Build and train your network.
-# from tensorflow.keras import layers
-
-# Create a Feature Extractor
-URL = "https://tfhub.dev/google/tf2-preview/mobilenet_v2/feature_vector/4"
-feature_extractor = hub.KerasLayer(URL,
-                                   input_shape=(IMAGE_RES, IMAGE_RES, 3))
-# Freeze the Pre-Trained Model
-feature_extractor.trainable = False
-# Attach a classification head
-model = tf.keras.Sequential([
-  feature_extractor,
-  layers.Dense(num_classes, activation='softmax')
-])
-
-print( model.summary())
-
-print('GPU Available: ', tf.test.is_gpu_available())
-
-model.compile(
-  optimizer= adam',
-  loss= 'sparse_categorical_crossentropy',
-  metrics= ['accuracy'])
-
-EPOCHS = 20
-
-# Stop training when there is no improvement in the validation loss for 5 consecutive epochs
-early_stopping = tf.keras.callbacks.EarlyStopping(monitor= 'val_loss', patience= 3)
-
-history = model.fit(train_batches,
-                    epochs=EPOCHS,
-                    validation_data=validation_batches,
-                    callbacks=[early_stopping])
-
-
-
-"""## References
-
-https://colab.research.google.com/github/tensorflow/examples/blob/master/courses/udacity_intro_to_tensorflow_for_deep_learning/l06c03_exercise_flowers_with_transfer_learning_solution.ipynb
-
-"""
+    # class_names[str(value)]
